@@ -7,10 +7,15 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra")
 
 ###################################################################################
 find_package(GTSAM REQUIRED)
+find_package(GTSAMCMakeTools REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 include_directories(${EIGEN_INCLUDE_DIR})
 include_directories(${GTSAM_INCLUDE_DIR})
+
+include(GtsamBuildTypes) 			# Load build type flags and default to Debug mode
+include(GtsamTesting)    			# Easy functions for creating unit tests and scripts
+include(GtsamMakeConfigFile) 
 
 ###################################################################################
 # add gtsam_quadrics
@@ -44,7 +49,7 @@ install(
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
   RUNTIME DESTINATION bin)
-# GtsamMakeConfigFile(GTSAM_QUADRICS)
+GtsamMakeConfigFile(GTSAM_QUADRICS)
 # list(APPEND GTSAM_EXPORTED_TARGETS ${CONVENIENCE_LIB_NAME})
 # export(TARGETS ${GTSAM_EXPORTED_TARGETS} FILE GTSAM-exports.cmake)
 
