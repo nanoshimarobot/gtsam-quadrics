@@ -6,45 +6,11 @@ set(GTSAM_QUADRICS_VERSION 0.1.2)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra")
 
 ###################################################################################
-# set up options
-option(BUILD_PYTHON_WRAP "Enable/Disable building of cython wrapper" ON)
-set(PYTHON_VERSION "3" CACHE STRING "The version of python to build the cython wrapper for (or Default)")
+find_package(GTSAM REQUIRED)
+find_package(Eigen3 REQUIRED)
 
-###################################################################################
-# Explicitly include GTSAM
-if (BUILD_PYTHON_WRAP)
-  set(GTSAM_BUILD_PYTHON ON CACHE BOOL "")
-  set(GTSAM_CONFIG_TEMPLATE_PATH ${CMAKE_SOURCE_DIR}/gtsam/cmake)
-
-  # Allow overriding Python choices for environments like manylinux...
-  if (DEFINED ENV{Python3_EXECUTABLE})
-    set(Python3_EXECUTABLE "$ENV{Python3_EXECUTABLE}")
-  endif()
-  if (DEFINED ENV{Python3_INCLUDE_DIR})
-    set(Python3_INCLUDE_DIR "$ENV{Python3_INCLUDE_DIR}")
-  endif()
-  find_package(Python3 COMPONENTS Interpreter Development.Module)
-endif()
-set(GTSAM_BUILD_UNSTABLE OFF CACHE BOOL "")
-add_subdirectory(./gtsam)
-
-###################################################################################
-# Add Python wrapping tools from gtwrap (used in GTSAM 4.1+)
-# (we use the version of gtwrap explicitly bundled in the GTSAM submodule)
-if(BUILD_PYTHON_WRAP)
-  # The config.cmake for gtwrap seems to be buggy as hell at the moment; so
-  # instead we manually hack in what we need from it here...
-  # find_package(gtwrap REQUIRED)
-  set(gtwrap_DIR ${CMAKE_SOURCE_DIR}/gtsam/wrap)
-
-  list(APPEND CMAKE_MODULE_PATH ${gtwrap_DIR}/cmake)
-
-  include(${gtwrap_DIR}/cmake/GtwrapUtils.cmake)
-  include(${gtwrap_DIR}/cmake/PybindWrap.cmake)
-
-  set(GTWRAP_PYTHON_PACKAGE_DIR ${gtwrap_DIR})
-  set(PYBIND_WRAP_SCRIPT ${gtwrap_DIR}/scripts/pybind_wrap.py)
-endif()
+include_directories(${EIGEN_INCLUDE_DIR})
+include_directories(${GTSAM_INCLUDE_DIR})
 
 ###################################################################################
 # add gtsam_quadrics
@@ -62,14 +28,12 @@ set(SOURCE_FILES
   ./gtsam_quadrics/geometry/QuadricAngleFactor.cpp
   ./gtsam_quadrics/geometry/QuadricCamera.cpp
   ./gtsam_quadrics/geometry/DualConic.cpp
-  )
+)
 
 ###################################################################################
 ## Build static library from common sources
-
 set(CONVENIENCE_LIB_NAME "gtsam_quadrics")
 add_library(${CONVENIENCE_LIB_NAME} ${SOURCE_FILES})
-# set_target_properties(${CONVENIENCE_LIB_NAME} PROPERTIES PREFIX "")
 target_link_libraries(${CONVENIENCE_LIB_NAME} gtsam)
 
 ###################################################################################
@@ -90,11 +54,6 @@ file(GLOB gtsam_quadrics_geometry_headers "gtsam_quadrics/geometry/*.h")
 install(FILES ${gtsam_quadrics_geometry_headers} DESTINATION include/gtsam_quadrics/geometry)
 
 ###################################################################################
-# Build tests (CMake tracks the dependecy to link with GTSAM through our project's static library)
-gtsamAddTestsGlob("geometry" "gtsam_quadrics/geometry/tests/test*.cpp" "" "${CONVENIENCE_LIB_NAME}")
-gtsamAddTestsGlob("geometry" "gtsam_quadrics/base/tests/test*.cpp" "" "${CONVENIENCE_LIB_NAME}")
-
-###################################################################################
 # Build example files (CMake tracks the dependecy to link with GTSAM through our project's static library)
 # TODO fix broken examples!
 # gtsamAddExamplesGlob("*.cpp" "" "${CONVENIENCE_LIB_NAME}")
@@ -104,25 +63,6 @@ gtsamAddTestsGlob("geometry" "gtsam_quadrics/base/tests/test*.cpp" "" "${CONVENI
 # add_custom_target(examples) <-- already exists from GtsamTesting
 # add_subdirectory(examples/c++)
 # add_dependencies(examples examples_folder)
-
-###################################################################################
-# Build Python wrapper using gtwrap library for GTSAM 4.1+
-if(BUILD_PYTHON_WRAP)
-  pybind_wrap(
-    ${PROJECT_NAME}_py
-    ${PROJECT_SOURCE_DIR}/${PROJECT_NAME}/${PROJECT_NAME}.i
-    "${PROJECT_NAME}.cpp"
-    "${PROJECT_NAME}"
-    "${PROJECT_NAME}"
-    ""
-    ${PROJECT_SOURCE_DIR}/${PROJECT_NAME}/${PROJECT_NAME}.tpl
-    ${PROJECT_NAME}
-    "${PROJECT_NAME}"
-    ON
-    )
-
-  set_target_properties(${PROJECT_NAME}_py PROPERTIES OUTPUT_NAME "${PROJECT_NAME}")
-endif()
 
 ###################################################################################
 # Build Doxygen documentation
