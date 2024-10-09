@@ -120,7 +120,7 @@ int main(void) {
   auto fig = plt.figure();
   auto ax = fig.add_subplot(Args(), Kwargs("projection"_a = "3d"));
 
-  auto odom_noise = noiseModel::Diagonal::Sigmas(Vector6(0.01, 0.1, 0.01, 0.2, 0.01, 0.2));
+  auto odom_noise = noiseModel::Diagonal::Sigmas(Vector6(0.01, 0.01, 0.01, 0.01, 0.01, 0.01));
   auto bbox_noise = noiseModel::Diagonal::Sigmas(Vector4::Ones() * 3.0);
   auto quadrics_prior_noise = noiseModel::Diagonal::Sigmas(Vector9(0.2, 0.2, 0.2, 10.0, 10.0, 10.0, 0.3, 0.3, 0.3));
   auto robot_prior_noise = noiseModel::Diagonal::Sigmas(Vector6::Ones() * 1.0);
@@ -133,18 +133,17 @@ int main(void) {
   // define ideal robot halfway points
   std::vector<Pose3> halfway_poses{
     CalibratedCamera::LookatPose(Point3(0.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
-    CalibratedCamera::LookatPose(Point3(0.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
     CalibratedCamera::LookatPose(Point3(3.0, 1.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
-    CalibratedCamera::LookatPose(Point3(6.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
-    CalibratedCamera::LookatPose(Point3(3.0, -5.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
-    CalibratedCamera::LookatPose(Point3(0.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1))};
+    // CalibratedCamera::LookatPose(Point3(6.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
+    // CalibratedCamera::LookatPose(Point3(3.0, -5.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
+    // CalibratedCamera::LookatPose(Point3(0.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1))
+  };
 
   int between_n = 10;
-  int deka_between_n = 50;
   std::vector<Pose3> ideal_trajectory;
   for (size_t i = 0; i < halfway_poses.size() - 1; ++i) {
     ideal_trajectory.push_back(halfway_poses[i]);
-    for (size_t j = 0; j < ((i == 0) ? deka_between_n : between_n); ++j) {
+    for (size_t j = 0; j < between_n; ++j) {
       double perc = (j + 1) / double(between_n + 1);
       Pose3 new_pose = interpolate<Pose3>(halfway_poses[i], halfway_poses[i + 1], perc);
       ideal_trajectory.push_back(new_pose);
@@ -168,32 +167,20 @@ int main(void) {
   NonlinearFactorGraph graph;
   Values initial_estimate;
 
-  // main process
-  py::list artist_animation;
-
   graph.emplace_shared<PriorFactor<Pose3>>(X(0), ideal_trajectory[0], robot_prior_noise);
   initial_estimate.insert(X(0), ideal_trajectory[0]);
-
-  auto res = optimize_graph(graph, initial_estimate);
-  auto an = draw_estimations(ax, res);
+  initial_estimate.insert_or_assign(Q(0), ideal_quadrics);
 
   for (size_t i = 0; i < ideal_trajectory.size() - 1; ++i) {
-    std::cout << "proc " << i << std::endl;
-    // odom
     graph.emplace_shared<BetweenFactor<Pose3>>(X(i), X(i + 1), ideal_odometry[i], odom_noise);
     initial_estimate.insert(X(i + 1), ideal_trajectory[i + 1]);
 
     graph.emplace_shared<BoundingBoxFactor>(ideal_bbox_list[i + 1], calibration, X(i + 1), Q(0), bbox_noise);
-    if (!initial_estimate.exists(Q(0))) {
-      graph.emplace_shared<PriorFactor<ConstrainedDualQuadric>>(Q(0), ideal_quadrics, quadrics_prior_noise);
-    }
-    initial_estimate.insert_or_assign(Q(0), ideal_quadrics);  // onlineなら前回の推定値をinitialに入れたほうがいい?
-
-    auto res = optimize_graph(graph, initial_estimate);
-    auto an = draw_estimations(ax, res);
-    artist_animation.append(an + draw_ellipse(ax, ideal_quadrics, "b"));
   }
-  auto ani = ArtistAnimation(Args(fig.unwrap(), artist_animation), Kwargs("interval"_a = 300));
+
+  auto res = optimize_graph(graph, initial_estimate);
+  draw_estimations(ax, res);
+  draw_ellipse(ax, ideal_quadrics, "b");
   ax.set_aspect(Args("equal"));
   plt.show();
   return 1;

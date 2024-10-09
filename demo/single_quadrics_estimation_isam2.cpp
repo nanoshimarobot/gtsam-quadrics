@@ -8,6 +8,7 @@
 #include <gtsam/nonlinear/Marginals.h>
 #include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
 #include <gtsam/nonlinear/LevenbergMarquardtParams.h>
+#include <gtsam/nonlinear/ISAM2.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/geometry/CalibratedCamera.h>
 #include <gtsam/slam/BetweenFactor.h>
@@ -127,6 +128,16 @@ int main(void) {
 
   boost::shared_ptr<Cal3_S2> calibration(new Cal3_S2(615.9603271484375, 616.227294921875, 0.0, 419.83026123046875, 245.1431427001953));
 
+  std::default_random_engine generator;
+  std::normal_distribution<double> odom_trans_xz_noise_distribution(0.0, 0.01);
+  std::normal_distribution<double> odom_trans_y_noise_distribution(0.0, 0.001);
+  std::normal_distribution<double> odom_rot_ry_noise_distribution(0.0, 0.001);
+  std::normal_distribution<double> odom_rot_p_noise_distribution(0.0, 0.001);
+
+  std::normal_distribution<double> bbox_noise_distribution(0.0, 3.0);
+  std::normal_distribution<double> quad_noise_distribution(0.0, 0.1);
+
+  ///////////////////////////////////////////////下準備//////////////////////////////////////////////////
   // define ideal quadrics
   auto ideal_quadrics = ConstrainedDualQuadric(Pose3(Rot3(), Point3(3.0, -2.0, 0.5)), Point3(0.2, 0.2, 0.5));
 
@@ -140,7 +151,7 @@ int main(void) {
     CalibratedCamera::LookatPose(Point3(0.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1))};
 
   int between_n = 10;
-  int deka_between_n = 50;
+  int deka_between_n = 100;
   std::vector<Pose3> ideal_trajectory;
   for (size_t i = 0; i < halfway_poses.size() - 1; ++i) {
     ideal_trajectory.push_back(halfway_poses[i]);
@@ -152,10 +163,47 @@ int main(void) {
   }
   ideal_trajectory.push_back(halfway_poses.back());
 
+  std::cout << "generated ideal trajectory " << ideal_trajectory.size() << std::endl;
+
   std::vector<Pose3> ideal_odometry;
   for (size_t i = 0; i < ideal_trajectory.size() - 1; ++i) {
     ideal_odometry.push_back(ideal_trajectory[i].between(ideal_trajectory[i + 1]));
   }
+
+  std::vector<Pose3> noisy_odometry;
+  for (auto pose : ideal_odometry) {
+    // Vector6 noise_vec(
+    //   odom_rot_rp_noise_distribution(generator),
+    //   odom_rot_rp_noise_distribution(generator),
+    //   odom_rot_y_noise_distribution(generator),
+    //   odom_trans_xy_noise_distribution(generator),
+    //   odom_trans_xy_noise_distribution(generator),
+    //   odom_trans_z_noise_distribution(generator));
+    Vector6 noise_vec(
+      odom_rot_ry_noise_distribution(generator),
+      odom_rot_p_noise_distribution(generator),
+      odom_rot_ry_noise_distribution(generator),
+      odom_trans_xz_noise_distribution(generator),
+      odom_trans_y_noise_distribution(generator),
+      odom_trans_xz_noise_distribution(generator));
+    Pose3 delta = Pose3::Retract(noise_vec);
+    noisy_odometry.push_back(pose.compose(delta));
+  }
+
+  std::vector<Pose3> noisy_trajectory;
+  noisy_trajectory.push_back(Pose3());
+  for (size_t i = 0; i < noisy_odometry.size(); ++i) {
+    noisy_trajectory.push_back(noisy_trajectory.back().compose(noisy_odometry[i]));
+  }
+
+  ConstrainedDualQuadric noisy_quadrics;
+  std::vector<double> noise_vec(9);
+  std::generate(noise_vec.begin(), noise_vec.end(), [&] { return quad_noise_distribution(generator); });
+  Vector9 eigen_noise(noise_vec.data());
+  Pose3 delta = Pose3::Retract(eigen_noise.head<6>());
+  Pose3 noisy_pose = ideal_quadrics.pose().compose(delta);
+  Vector3 noisy_radii = ideal_quadrics.radii() + eigen_noise.tail<3>();
+  noisy_quadrics = ConstrainedDualQuadric(noisy_pose, noisy_radii);
 
   std::vector<AlignedBox2> ideal_bbox_list;
   for (auto pose : ideal_trajectory) {
@@ -164,37 +212,91 @@ int main(void) {
     ideal_bbox_list.push_back(bounds);
   }
 
+  std::vector<AlignedBox2> noisy_bbox_list;
+  for (auto box : ideal_bbox_list) {
+    std::vector<double> noise_vec(4);
+    std::generate(noise_vec.begin(), noise_vec.end(), [&] { return bbox_noise_distribution(generator); });
+    AlignedBox2 noisy_bbox = AlignedBox2(box.vector() + Vector4(noise_vec.data()));
+    noisy_bbox_list.push_back(noisy_bbox);
+  }
+
+  std::vector<Pose3> transformed;
+  for (auto pose : noisy_trajectory) {
+    transformed.push_back(ideal_trajectory[0].transformPoseFrom(pose));
+  }
+  noisy_trajectory = transformed;
+
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
   // factor graph definition
+  ISAM2Params parameters;
+  parameters.relinearizeThreshold = 0.01;
+  parameters.relinearizeSkip = 1;
+  ISAM2 isam(parameters);
+
   NonlinearFactorGraph graph;
   Values initial_estimate;
 
   // main process
   py::list artist_animation;
 
-  graph.emplace_shared<PriorFactor<Pose3>>(X(0), ideal_trajectory[0], robot_prior_noise);
-  initial_estimate.insert(X(0), ideal_trajectory[0]);
+  graph.emplace_shared<PriorFactor<Pose3>>(X(0), noisy_trajectory[0], robot_prior_noise);
+  initial_estimate.insert(X(0), noisy_trajectory[0]);
 
+  graph.emplace_shared<BoundingBoxFactor>(noisy_bbox_list[0], calibration, X(0), Q(0), bbox_noise);
+  initial_estimate.insert(Q(0), noisy_quadrics);
+
+  // optimize
   auto res = optimize_graph(graph, initial_estimate);
+  marginalize(graph, res);
   auto an = draw_estimations(ax, res);
+  artist_animation.append(an + draw_ellipse(ax, ideal_quadrics, "b"));
+  // ConstrainedDualQuadric pre_initial_estimate = res.at<ConstrainedDualQuadric>(Q(0));
+  // ConstrainedDualQuadric pre_initial_estimate = noisy_quadrics;
 
-  for (size_t i = 0; i < ideal_trajectory.size() - 1; ++i) {
+  for (size_t i = 0; i < noisy_trajectory.size() - 1; ++i) {
     std::cout << "proc " << i << std::endl;
     // odom
-    graph.emplace_shared<BetweenFactor<Pose3>>(X(i), X(i + 1), ideal_odometry[i], odom_noise);
-    initial_estimate.insert(X(i + 1), ideal_trajectory[i + 1]);
+    graph.emplace_shared<BetweenFactor<Pose3>>(X(i), X(i + 1), noisy_odometry[i], odom_noise);
+    initial_estimate.insert(X(i + 1), noisy_trajectory[i + 1]);
 
-    graph.emplace_shared<BoundingBoxFactor>(ideal_bbox_list[i + 1], calibration, X(i + 1), Q(0), bbox_noise);
-    if (!initial_estimate.exists(Q(0))) {
-      graph.emplace_shared<PriorFactor<ConstrainedDualQuadric>>(Q(0), ideal_quadrics, quadrics_prior_noise);
+    if (i >= 0) {
+      graph.emplace_shared<BoundingBoxFactor>(noisy_bbox_list[i + 1], calibration, X(i + 1), Q(0), bbox_noise);
+
+      ConstrainedDualQuadric noisy_quadrics;
+      std::vector<double> noise_vec(9);
+      std::generate(noise_vec.begin(), noise_vec.end(), [&] { return quad_noise_distribution(generator); });
+      Vector9 eigen_noise(noise_vec.data());
+      Pose3 delta = Pose3::Retract(eigen_noise.head<6>());
+      Pose3 noisy_pose = ideal_quadrics.pose().compose(delta);
+      Vector3 noisy_radii = ideal_quadrics.radii() + eigen_noise.tail<3>();
+      noisy_quadrics = ConstrainedDualQuadric(noisy_pose, noisy_radii);
+      // initial_estimate.insert_or_assign(Q(0), pre_initial_estimate);
+      initial_estimate.insert_or_assign(Q(0), noisy_quadrics);  // onlineなら前回の推定値をinitialに入れたほうがいい?
     }
-    initial_estimate.insert_or_assign(Q(0), ideal_quadrics);  // onlineなら前回の推定値をinitialに入れたほうがいい?
 
     auto res = optimize_graph(graph, initial_estimate);
+    marginalize(graph, res);
     auto an = draw_estimations(ax, res);
     artist_animation.append(an + draw_ellipse(ax, ideal_quadrics, "b"));
+    // pre_initial_estimate = res.at<ConstrainedDualQuadric>(Q(0));
   }
   auto ani = ArtistAnimation(Args(fig.unwrap(), artist_animation), Kwargs("interval"_a = 300));
   ax.set_aspect(Args("equal"));
   plt.show();
+  // LevenbergMarquardtOptimizer optimizer(graph, initial_estimate);
+  // Values result = optimizer.optimize();
+
+  // auto estimated_quad = result.at<ConstrainedDualQuadric>(Q(0));
+  // draw_ellipse(ax, estimated_quad);
+
+  // result.print("OPTIMIZE_RESULT");
+  // ax.set_xlim(Args(-5, 5));
+  // ax.set_ylim(Args(-5, 5));
+  // ax.set_zlim(Args(0, 3));
+  // ax.set_aspect(Args("equal"));
+  // plt.show();
+  // return 1;
+
   return 1;
 }
