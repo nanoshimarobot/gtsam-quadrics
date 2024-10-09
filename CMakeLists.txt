@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.18)
 set(GTSAM_QUADRICS_VERSION 0.1.2)
 
 # we want to use some C++11 features
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra -fPIC")
 
 ###################################################################################
 find_package(GTSAM REQUIRED)
@@ -66,8 +66,8 @@ install(FILES ${gtsam_quadrics_geometry_headers} DESTINATION include/gtsam_quadr
 # https://stackoverflow.com/questions/17765618/cmake-add-subdirectories-to-custom-target-and-adding-custom-target-to-vs-solut
 # TODO: pass ${CONVENIENCE_LIB_NAME} to examples/c++/CMakeLists.txt
 # add_custom_target(examples) <-- already exists from GtsamTesting
-# add_subdirectory(examples/c++)
-# add_dependencies(examples examples_folder)
+add_subdirectory(demo)
+add_dependencies(examples demo_folder)
 
 ###################################################################################
 # Build Doxygen documentation
