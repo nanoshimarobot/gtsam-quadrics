@@ -134,10 +134,9 @@ int main(void) {
   std::vector<Pose3> halfway_poses{
     CalibratedCamera::LookatPose(Point3(0.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
     CalibratedCamera::LookatPose(Point3(3.0, 1.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
-    // CalibratedCamera::LookatPose(Point3(6.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
-    // CalibratedCamera::LookatPose(Point3(3.0, -5.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
-    // CalibratedCamera::LookatPose(Point3(0.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1))
-  };
+    CalibratedCamera::LookatPose(Point3(6.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
+    CalibratedCamera::LookatPose(Point3(3.0, -5.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1)),
+    CalibratedCamera::LookatPose(Point3(0.0, -2.0, 0.5), Point3(3.0, -2.0, 0.5), Point3(0, 0, 1))};
 
   int between_n = 10;
   std::vector<Pose3> ideal_trajectory;
@@ -156,11 +155,21 @@ int main(void) {
     ideal_odometry.push_back(ideal_trajectory[i].between(ideal_trajectory[i + 1]));
   }
 
+  std::default_random_engine generator;
+  std::normal_distribution<double> bbox_noise_distribution(0.0, 3.0);
+  std::normal_distribution<double> quad_noise_distribution(0.0, 0.1);
+
   std::vector<AlignedBox2> ideal_bbox_list;
   for (auto pose : ideal_trajectory) {
     DualConic conic = QuadricCamera::project(ideal_quadrics, pose, calibration);
     AlignedBox2 bounds = conic.bounds();
-    ideal_bbox_list.push_back(bounds);
+    AlignedBox2 noisy_bounds(
+      bounds.xmin() * bbox_noise_distribution(generator),
+      bounds.ymin() * bbox_noise_distribution(generator),
+      bounds.xmax() * bbox_noise_distribution(generator),
+      bounds.ymax() * bbox_noise_distribution(generator));
+    // ideal_bbox_list.push_back(bounds);
+    ideal_bbox_list.push_back(noisy_bounds);
   }
 
   // factor graph definition
@@ -169,7 +178,16 @@ int main(void) {
 
   graph.emplace_shared<PriorFactor<Pose3>>(X(0), ideal_trajectory[0], robot_prior_noise);
   initial_estimate.insert(X(0), ideal_trajectory[0]);
-  initial_estimate.insert_or_assign(Q(0), ideal_quadrics);
+
+  ConstrainedDualQuadric noisy_quadrics;
+  std::vector<double> noise_vec(9);
+  std::generate(noise_vec.begin(), noise_vec.end(), [&] { return quad_noise_distribution(generator); });
+  Vector9 eigen_noise(noise_vec.data());
+  Pose3 delta = Pose3::Retract(eigen_noise.head<6>());
+  Pose3 noisy_pose = ideal_quadrics.pose().compose(delta);
+  Vector3 noisy_radii = ideal_quadrics.radii() + eigen_noise.tail<3>();
+  noisy_quadrics = ConstrainedDualQuadric(noisy_pose, noisy_radii);
+  initial_estimate.insert_or_assign(Q(0), noisy_quadrics);
 
   for (size_t i = 0; i < ideal_trajectory.size() - 1; ++i) {
     graph.emplace_shared<BetweenFactor<Pose3>>(X(i), X(i + 1), ideal_odometry[i], odom_noise);
