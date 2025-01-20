@@ -80,6 +80,37 @@ ConstrainedDualQuadric ConstrainedDualQuadric::constrain(
   return ConstrainedDualQuadric(rotation, translation, shape);
 }
 
+gtsam::Pose3 ConstrainedDualQuadric::pose(gtsam::OptionalJacobian<6, 9> H) const {
+  if(H){
+    gtsam::Matrix69 H_pose_q = gtsam::Matrix::Zero(6, 9);
+    H_pose_q.block(0, 0, 6, 6) = gtsam::Matrix::Identity(6, 6);
+    *H = H_pose_q;
+  }
+  return pose_;
+}
+
+gtsam::Vector3 ConstrainedDualQuadric::radii(gtsam::OptionalJacobian<3, 9> H) const {
+  if(H){
+    gtsam::Matrix39 H_radii_q = gtsam::Matrix::Zero(3, 9);
+    H_radii_q.block(0, 6, 3, 3) = gtsam::Matrix::Identity(3, 3);
+    *H = H_radii_q;
+  }
+  return radii_;
+}
+
+gtsam::Point3 ConstrainedDualQuadric::centroid(gtsam::OptionalJacobian<3, 9> H) const {
+  gtsam::Matrix69 H_pose_q;
+  gtsam::Matrix36 H_trans_pose;
+  gtsam::Pose3 p = pose(H_pose_q);
+  gtsam::Point3 trans = p.translation(H_trans_pose);
+  if(H){
+    gtsam::Matrix39 H_trans_q;
+    H_trans_q = H_trans_pose * H_pose_q;
+    *H = H_trans_q;
+  }
+  return trans;
+}
+
 /* ************************************************************************* */
 gtsam::Matrix44 ConstrainedDualQuadric::matrix(
     gtsam::OptionalJacobian<16, 9> dQ_dq) const {

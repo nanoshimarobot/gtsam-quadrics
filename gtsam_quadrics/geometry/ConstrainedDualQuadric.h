@@ -82,13 +82,13 @@ class ConstrainedDualQuadric {
   /// @{
 
   /** Get pose, avoid computation with it */
-  gtsam::Pose3 pose(void) const { return pose_; }
+  gtsam::Pose3 pose(gtsam::OptionalJacobian<6, 9> H = boost::none) const;
 
   /** Get quadric radii, avoid computation with it */
-  gtsam::Vector3 radii(void) const { return radii_; }
+  gtsam::Vector3 radii(gtsam::OptionalJacobian<3, 9> H = boost::none) const;
 
   /** Get quadric centroid */
-  gtsam::Point3 centroid(void) const { return pose_.translation(); }
+  gtsam::Point3 centroid(gtsam::OptionalJacobian<3, 9> H = boost::none) const;
 
   /// @}
   /// @name Class methods
