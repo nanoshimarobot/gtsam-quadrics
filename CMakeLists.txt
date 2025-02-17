@@ -7,11 +7,15 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Wextra")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 find_package(GTSAM REQUIRED)
-# find_package(GTSAMCMakeTools REQUIRED)
+find_package(GTSAMCMakeTools REQUIRED)
 find_package(Eigen3 REQUIRED)
 
 include_directories(${EIGEN_INCLUDE_DIR})
 include_directories(${GTSAM_INCLUDE_DIR})
+
+include(GtsamBuildTypes) 			# Load build type flags and default to Debug mode
+include(GtsamTesting)    			# Easy functions for creating unit tests and scripts
+include(GtsamMakeConfigFile) 
 
 
 ###################################################################################
@@ -47,7 +51,9 @@ install(
   EXPORT GTSAM_QUADRICS-exports
   LIBRARY DESTINATION lib
   ARCHIVE DESTINATION lib
-  RUNTIME DESTINATION bin)
+  RUNTIME DESTINATION bin
+  )
+GtsamMakeConfigFile(GTSAM_QUADRICS)
 
 file(GLOB gtsam_quadrics_base_headers "gtsam_quadrics/base/*.h")
 install(FILES ${gtsam_quadrics_base_headers} DESTINATION include/gtsam_quadrics/base)
