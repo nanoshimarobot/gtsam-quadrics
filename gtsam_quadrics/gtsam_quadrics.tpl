@@ -20,10 +20,6 @@
 // Holder type for pybind11
 {holder_type}
 
-// Preamble for STL classes
-// TODO(fan): make this automatic
-// #include "python/gtsam/preamble/{module_name}.h"
-
 using namespace std;
 
 namespace py = pybind11;
@@ -43,10 +39,7 @@ namespace py = pybind11;
 {submodules_init}
 
 {wrapped_namespace}
-
-// Specializations for STL classes
-// TODO(fan): make this automatic
-// #include "python/gtsam/specializations/{module_name}.h"
+// #include "gtsam_quadrics/specializations/{module_name}.h"
 
 }}
 

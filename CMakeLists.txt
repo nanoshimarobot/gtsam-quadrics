@@ -9,13 +9,14 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 find_package(GTSAM REQUIRED)
 find_package(GTSAMCMakeTools REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(gtwrap REQUIRED)
 
 include_directories(${EIGEN_INCLUDE_DIR})
 include_directories(${GTSAM_INCLUDE_DIR})
 
 include(GtsamBuildTypes) 			# Load build type flags and default to Debug mode
 include(GtsamTesting)    			# Easy functions for creating unit tests and scripts
-include(GtsamMakeConfigFile) 
+include(GtsamMakeConfigFile)
 
 
 ###################################################################################
@@ -59,6 +60,20 @@ file(GLOB gtsam_quadrics_base_headers "gtsam_quadrics/base/*.h")
 install(FILES ${gtsam_quadrics_base_headers} DESTINATION include/gtsam_quadrics/base)
 file(GLOB gtsam_quadrics_geometry_headers "gtsam_quadrics/geometry/*.h")
 install(FILES ${gtsam_quadrics_geometry_headers} DESTINATION include/gtsam_quadrics/geometry)
+
+# pybind
+pybind_wrap(${PROJECT_NAME}_py
+  ${PROJECT_SOURCE_DIR}/${PROJECT_NAME}/${PROJECT_NAME}.i
+  "${PROJECT_NAME}.cpp"
+  "${PROJECT_NAME}"
+  "${PROJECT_NAME}"
+  ""
+  ${PROJECT_SOURCE_DIR}/${PROJECT_NAME}/${PROJECT_NAME}.tpl
+  ${PROJECT_NAME}
+  "${PROJECT_NAME}"
+  ON
+)
+set_target_properties(${PROJECT_NAME}_py PROPERTIES OUTPUT_NAME "${PROJECT_NAME}")
 
 # add subdirectory with custom make doc, doc_clean targets
 if (DOXYGEN_FOUND)
